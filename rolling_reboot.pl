@@ -1,8 +1,5 @@
 #!/usr/bin/perl
 #
-# $HeadURL: https://svn.cac.washington.edu/svn/ueteam/hyak/rolling_reboot.pl $
-# $Id: rolling_reboot.pl 86 2013-05-15 00:48:14Z sjf4@u.washington.edu $
-#
 use XML::LibXML;
 use Getopt::Std;
 
