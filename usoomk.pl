@@ -26,7 +26,7 @@ $SIG{INT}=\&signal_handler;
 my $dbg = 0;
 if($opt_d) { $dbg = 1; }
 
-openlog('hoomk','pid','user');
+openlog('usoomk','pid','user');
 
 # daemonize the program
 if($dbg == 0) {
