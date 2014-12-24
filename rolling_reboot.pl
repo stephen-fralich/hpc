@@ -1,5 +1,4 @@
 #!/usr/bin/perl
-#
 use XML::LibXML;
 use Getopt::Std;
 
@@ -24,11 +23,13 @@ my $bf_queue = 'bf';
 # the real max wall time for bf jobs
 my $bf_max = 15000;
 # max time to wait for a node to reboot before intervening
-my $r_int_timeout_s = 1200;
+my $r_int_timeout_s = 1500;
 # max time to wait for a node to reboot before giving up
 my $r_max_s = 2400;
 # time until we intervene on a offline node that's down unexpectedly
 my $dn_node_wait = 900;
+# minimum time it takes a node to reboot
+my $node_rb_min = 300;
 # max failed nodes before quitting
 my $max_failed = 3;
 # hash of system users to ignore when determining if there are user process on a node
@@ -52,7 +53,7 @@ my $reboot_cmd = 'reboot';
 ############################################################################
 
 # version
-our $VERSION = "20140129";
+our $VERSION = "20140916";
 # hash for keeping track of nodes that are down, but in state OR
 my %wedged_node_timer = ();
 # node hostname to node state hash
@@ -150,7 +151,7 @@ while($node_left != 0) {
     }
     my %mon_jobs = ();
     my %wc_jobid_h = ();
-    my $parser_jobs = XML::LibXML->new();
+    my $parser_jobs = XML::LibXML->new(recover=>1);
     my $doc_jobs = $parser_jobs->parse_string($xmlout_jobs);
     my $query = "//Data/Job[job_state = 'R']";
     foreach my $job ($doc_jobs->findnodes($query)) {
@@ -202,7 +203,9 @@ while($node_left != 0) {
     foreach my $wc (sort {$a <=> $b} keys %wc_jobid_h) {
       foreach my $jobid (@{$wc_jobid_h{$wc}}) {
         foreach my $hnode (keys %{$mon_jobs{$jobid}}) {
-          &queue_add($hnode);
+#          if($vdbg) { print "VERYDEBUG $jobid-$wc-$hnode\n"; }
+          my $rc = &queue_add($hnode);
+          if($vdbg) { print "VERYDEBUG $rc-$jobid-$wc-$hnode\n"; }
         }
       }
     }
@@ -280,6 +283,7 @@ while($node_left != 0) {
     }
   }
 }
+unlink $c_file;
 
 # if the program exits or is killed, online any offline nodes that are not
 #  in any stage of the rebooting process
@@ -306,7 +310,7 @@ sub queue_add($$) {
   if(exists $node_queue_h{$node}) { return 2; }
   # If we're running in special node list mode, don't add anything not in the list
   if($opt_n) {
-    if(! exists $n_hash{$node}) { return 2; }
+    if(! exists $n_hash{$node}) { return 3; }
   }
   # if the queue is maxed out, but less than the max are rebooting
   #  add nodes without jobs to the queue until max_reboot is reached.
@@ -401,7 +405,7 @@ sub get_node_state() {
   if($mdiag_rc != 0) {
     die "pbsnodes -x exited abnormally (RC = $mdiag_rc)\n";
   }
-  my $parser = XML::LibXML->new();
+  my $parser = XML::LibXML->new(recover=>1);
   my $doc = $parser->parse_string($xmlout_node);
   foreach my $obj ($doc->findnodes('/Data/Node')) {
     my($nameo) = $obj->getChildrenByTagName('name');
@@ -458,7 +462,8 @@ sub get_node_state() {
 	      (($jobs) || (exists $n_state_h{"job-exclusive"}))) { $node_queue_h{$hostname} = "OR"; }
 	elsif((! $jobs) && (exists $n_state_h{"offline"})) { $node_queue_h{$hostname} = "OF"; }
       } elsif(($c_state eq "RA") || ($c_state eq "RL")) {
-	if((exists $n_state_h{"offline"}) && (! exists $n_state_h{"down"}) && (&check_uptime($hostname))) {
+	if((exists $n_state_h{"offline"}) && (! exists $n_state_h{"down"}) && 
+           (time() - $node_rb_timer{$hostname} > $node_rb_min) && (&check_uptime($hostname))) {
 	  $node_queue_h{$hostname} = "RC";
 	}
       }
