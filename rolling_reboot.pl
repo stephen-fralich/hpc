@@ -1,6 +1,11 @@
 #!/usr/bin/perl
+#
+# $HeadURL: https://svn.cac.washington.edu/svn/ueteam/hyak/rolling_reboot.pl $
+# $Id: rolling_reboot.pl 221 2014-09-17 16:21:11Z sjf4@u.washington.edu $
+#
 use XML::LibXML;
 use Getopt::Std;
+use Date::Calc;
 
 # max number of nodes to reboot at once
 my $max_reboot = 5;
@@ -33,7 +38,7 @@ my $node_rb_min = 300;
 # max failed nodes before quitting
 my $max_failed = 3;
 # hash of system users to ignore when determining if there are user process on a node
-my %sys_users = ("root",undef,"nobody",undef,"smmsp",undef,"ntp",undef,"vtunesag",undef);
+my %sys_users = ("root",undef,"nobody",undef,"smmsp",undef,"ntp",undef,"vtunesag",undef,"dbus",undef,"cvmfs",undef);
 # must be up for less than this number of seconds to be considered rebooted
 my $max_uptime = 600;
 # qstat command
@@ -78,6 +83,9 @@ my %node_queue_h = ();
 my %node_comp = ();
 # reboot timer
 my %node_rb_timer = ();
+# report wc per node
+my %node_wc_h = ();
+my %node_wc_add_h = ();
 # initialize node_left
 my $node_left = -1;
 
@@ -206,6 +214,8 @@ while($node_left != 0) {
 #          if($vdbg) { print "VERYDEBUG $jobid-$wc-$hnode\n"; }
           my $rc = &queue_add($hnode);
           if($vdbg) { print "VERYDEBUG $rc-$jobid-$wc-$hnode\n"; }
+          $node_wc_h{$hnode} = $wc;
+          $node_wc_add_h{$hnode} = time;
         }
       }
     }
@@ -226,6 +236,8 @@ while($node_left != 0) {
     my $state = $node_queue_h{$node};
     if($state eq "OF") {
       $node_queue_h{$node} = "RP";
+      delete $node_wc_h{$node};
+      delete $node_wc_add_h{$hnode};
     }
     if(($state eq "RL") && (time() - $node_rb_timer{$node} >= $r_max_s)) {
       # if second reboot timer has been exceeded, eject and set online
@@ -527,10 +539,22 @@ sub check_uptime($) {
 
 sub print_queue() {
   # print node_queue_h hash
+  my $curtime = time;
   print "--\n";
   print "Reboot Queue State\n";
   foreach my $node (keys %node_queue_h) {
     print "$node -> $node_queue_h{$node}";
+    if(exists $node_wc_h{$node}) {
+      my $elapsed = $curtime - $node_wc_add_h{$node};
+      my $wc_r = $node_wc_h{$node} - $elapsed;
+      my(@dcs) = Date::Calc::Normalize_DHMS(0,0,0,$wc_r);
+      my @dcs_pad = ();
+      foreach my $part (@dcs) {
+        my $pad_part = sprintf "%02d", $part;
+        push @dcs_pad, $pad_part;
+      }
+      my $wc_string = join(':', @dcs_pad);
+      print " node_wc_h = $wc_string"; }
     if(exists $node_rb_timer{$node}) { print " node_rb_timer = ",time()-$node_rb_timer{$node}; }
     print "\n";
   }
