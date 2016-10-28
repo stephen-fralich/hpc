@@ -58,7 +58,7 @@ my $reboot_cmd = 'reboot';
 ############################################################################
 
 # version
-our $VERSION = "20140916";
+our $VERSION = "20141028";
 # hash for keeping track of nodes that are down, but in state OR
 my %wedged_node_timer = ();
 # node hostname to node state hash
@@ -207,16 +207,21 @@ while($node_left != 0) {
       push @{$wc_jobid_h{$remaining}}, $jobid;
       if($vdbg) { print "VERYDEBUG $jobid-$queue-$remaining-$exec_host\n"; }
     }
-    # sort the job queue by remaining wall time and add nodes
+    # build a $node -> $maxwc hash
+    my %node_maxwc_h = ();
     foreach my $wc (sort {$a <=> $b} keys %wc_jobid_h) {
       foreach my $jobid (@{$wc_jobid_h{$wc}}) {
         foreach my $hnode (keys %{$mon_jobs{$jobid}}) {
-#          if($vdbg) { print "VERYDEBUG $jobid-$wc-$hnode\n"; }
-          my $rc = &queue_add($hnode);
-          if($vdbg) { print "VERYDEBUG $rc-$jobid-$wc-$hnode\n"; }
-          $node_wc_h{$hnode} = $wc;
-          $node_wc_add_h{$hnode} = time;
+          if($node_maxwc_h{$hnode} < $wc) { $node_maxwc_h{$hnode} = $wc; }
+          if($vdbg) { print "VERYDEBUG $jobid-$wc-$hnode\n"; }
         }
+      }
+    }
+    foreach my $node (sort {$node_maxwc_h{$a} <=> $node_maxwc_h{$b}} keys %node_maxwc_h) {
+      my $rc = &queue_add($node);
+      if($rc == 1) {
+        $node_wc_h{$node} = $node_maxwc_h{$node};
+        $node_wc_add_h{$node} = time;
       }
     }
   }
@@ -471,7 +476,15 @@ sub get_node_state() {
 	  }
 	}
 	elsif((exists $n_state_h{"offline"}) && 
-	      (($jobs) || (exists $n_state_h{"job-exclusive"}))) { $node_queue_h{$hostname} = "OR"; }
+	      (($jobs) || (exists $n_state_h{"job-exclusive"}))) {
+          if($c_state eq "OF") {
+            delete $node_queue_h{$node};
+            delete $node_wc_h{$node};
+            delete $node_wc_add_h{$node};
+          } else {
+            $node_queue_h{$hostname} = "OR";
+          }
+        }
 	elsif((! $jobs) && (exists $n_state_h{"offline"})) { $node_queue_h{$hostname} = "OF"; }
       } elsif(($c_state eq "RA") || ($c_state eq "RL")) {
 	if((exists $n_state_h{"offline"}) && (! exists $n_state_h{"down"}) && 
